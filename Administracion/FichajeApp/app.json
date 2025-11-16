@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "bcc9d0f5-be2a-4381-bd6c-5d62012529bc"
+      }
+    },
+    "android": {
+      "package": "com.juandiegosusu.fichajeconsorcio"
+    }
+  }
+}

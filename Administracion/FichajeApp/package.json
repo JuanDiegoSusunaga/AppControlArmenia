@@ -12,10 +12,12 @@
     "expo": "~54.0.23",
     "expo-location": "~19.0.7",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "firebase": "10.12.3" 
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "eas-cli": "^9.1.0" 
   },
   "private": true
 }

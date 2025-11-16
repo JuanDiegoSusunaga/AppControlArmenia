@@ -10,9 +10,20 @@ import {
   ScrollView 
 } from 'react-native';
 import * as Location from 'expo-location';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc } from 'firebase/firestore';
 
-// 🚨 URL de tu Backend de Python (Cloud Function) 🚨
-const API_URL = 'https://us-central1-juan-diego-susunaga.cloudfunctions.net/obtener_reportes_web/registrar_fichaje'; 
+const firebaseConfig = {
+  apiKey: "AIzaSyDM4HvPGHme9UTKiAxGgNuZJX_a5BUBtu4",
+  authDomain: "controldeobranexus.firebaseapp.com",
+  projectId: "controldeobranexus",
+  storageBucket: "controldeobranexus.firebasestorage.app",
+  messagingSenderId: "382485340614",
+  appId: "1:382485340614:web:81f3e28baca08c57b412c7"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 // --- Configuración de Geo-Cerca ---
 const ZONA_AUTORIZADA = {
@@ -98,8 +109,10 @@ function App() {
       ZONA_AUTORIZADA.lon
     );
     
-    if (dist > ZONA_AUTORIZADA.radio) {
-      Alert.alert('Advertencia de Geo-cerca', 'Usted está fuera del área autorizada de la obra. El registro se hará, pero será marcado como NO AUTORIZADO.', [
+    const fueraDeZona = dist > ZONA_AUTORIZADA.radio;
+
+    if (fueraDeZona) {
+      Alert.alert('Advertencia de Geo-cerca', 'Usted está fuera del área autorizada. El registro se hará, pero será marcado como FUERA DE ZONA.', [
         { text: 'OK' }
       ]);
     }
@@ -112,32 +125,25 @@ function App() {
       actividad: actividad,
       latitud: location.coords.latitude,
       longitud: location.coords.longitude,
+      timestamp_cliente: new Date().toISOString(),
+      fuera_de_zona: fueraDeZona, // Nuevo campo para auditoría
     };
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      // 🚨 GUARDAR DATOS DIRECTAMENTE EN FIRESTORE 🚨
+      await addDoc(collection(db, "fichajes"), payload);
 
-      const data = await response.json();
+      Alert.alert('Fichaje Exitoso', 
+        `¡${tipo_fichaje} registrado!\nID: ${empleadoId}`, 
+        [{ text: 'OK' }]
+      );
 
-      if (response.ok) {
-        Alert.alert('Fichaje Exitoso', `¡${tipo_fichaje} registrado!\nID: ${empleadoId}\nVerifique en el Dashboard.`, [
-          { text: 'OK' }
-        ]);
-      } else {
-        Alert.alert('Fallo de Registro', data.error || 'Error desconocido al conectar con la API.', [
-          { text: 'OK' }
-        ]);
-      }
     } catch (error) {
-      Alert.alert('Error de Conexión', 'No se pudo contactar con la Cloud Function de Google. Verifique la URL de la API.', [
-        { text: 'OK' }
-      ]);
+      console.error("Error al escribir en Firestore: ", error);
+      Alert.alert('Error de Conexión a Firebase', 
+        'No se pudo guardar el registro. Verifique su conexión y las reglas de seguridad de Firestore.', 
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoading(false);
     }
@@ -151,7 +157,7 @@ function App() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>Control de Fichaje (v54)</Text>
+      <Text style={styles.header}>Control de Fichaje (Conexión a Firestore)</Text>
       
       <Text style={styles.label}>ID de Empleado:</Text>
       <TextInput
