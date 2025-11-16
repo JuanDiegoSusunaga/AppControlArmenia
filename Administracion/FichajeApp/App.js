@@ -7,13 +7,26 @@ import {
   Button, 
   Alert, 
   ActivityIndicator, 
-  ScrollView 
+  ScrollView,
+  TouchableOpacity,
+  KeyboardAvoidingView, 
+  Platform,
 } from 'react-native';
 import * as Location from 'expo-location';
-import { initializeApp } from 'firebase/app';
-// 🚨 CAMBIO 1: Importar desde "firebase/database" en lugar de "firebase/firestore"
-import { getDatabase, ref, push } from 'firebase/database';
 
+// Realtime Database Imports
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, push } from 'firebase/database'; 
+
+// Firebase Auth Imports
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+
+// 🚨 CREDENCIALES FINALES DE FIREBASE 🚨
 const firebaseConfig = {
   apiKey: "AIzaSyDM4HvPGHme9UTKiAxGgNuZJX_a5BUBtu4",
   authDomain: "controldeobranexus.firebaseapp.com",
@@ -21,13 +34,13 @@ const firebaseConfig = {
   storageBucket: "controldeobranexus.firebasestorage.app",
   messagingSenderId: "382485340614",
   appId: "1:382485340614:web:81f3e28baca08c57b412c7",
-  // 🚨 CAMBIO 2: Añadir la URL de tu Realtime Database
   databaseURL: "https://controldeobranexus-default-rtdb.firebaseio.com"
 };
 
 const app = initializeApp(firebaseConfig);
-// 🚨 CAMBIO 3: Inicializar Realtime Database, no Firestore
-const db = getDatabase(app);
+const dbRTDB = getDatabase(app);
+const auth = getAuth(app);
+
 
 // --- Configuración de Geo-Cerca ---
 const ZONA_AUTORIZADA = {
@@ -35,8 +48,6 @@ const ZONA_AUTORIZADA = {
   lon: -75.675000,
   radio: 200, 
 };
-
-// Función Haversine (sin cambios)
 const distancia = (lat1, lon1, lat2, lon2) => {
     const R = 6371e3; 
     const toRad = v => (v * Math.PI) / 180;
@@ -47,8 +58,14 @@ const distancia = (lat1, lon1, lat2, lon2) => {
     return R * c; 
 };
 
-function App() {
-  const [empleadoId, setEmpleadoId] = useState('EMP-987');
+
+// ==========================================================
+// PANTALLA DE FICHAJE (Solo visible después del Login)
+// ==========================================================
+
+const FichajeScreen = ({ user, handleLogout }) => {
+  // El ID del empleado es ahora el email del usuario autenticado
+  const [empleadoId, setEmpleadoId] = useState(user.email);
   const [actividad, setActividad] = useState('Obra Consorcio Principal');
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -56,7 +73,7 @@ function App() {
   const [mensajeEstado, setMensajeEstado] = useState('Esperando ubicación...');
   const [ultimaCoordenada, setUltimaCoordenada] = useState(null);
 
-  // useEffect para la ubicación (sin cambios)
+  // 1. Obtener Permisos y Ubicación
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -122,22 +139,22 @@ function App() {
     setLoading(true);
 
     const payload = {
-      empleado_id: empleadoId,
+      empleado_id: user.email, // Usamos el email autenticado como ID
       tipo_fichaje: tipo_fichaje,
       actividad: actividad,
       latitud: location.coords.latitude,
       longitud: location.coords.longitude,
-      timestamp_servidor: new Date().toISOString(), // Realtime Database puede usar un timestamp del servidor
-      fuera_de_zona: fueraDeZona,
+      timestamp_servidor: new Date().toISOString(), 
+      fuera_de_zona: fueraDeZona, 
     };
 
     try {
-      // 🚨 CAMBIO 4: GUARDAR DATOS EN REALTIME DATABASE 🚨
-      const fichajesRef = ref(db, 'fichajes');
+      // GUARDAR DATOS EN REALTIME DATABASE
+      const fichajesRef = ref(dbRTDB, 'fichajes');
       await push(fichajesRef, payload);
 
       Alert.alert('Fichaje Exitoso', 
-        `¡${tipo_fichaje} registrado!\nID: ${empleadoId}`, 
+        `¡${tipo_fichaje} registrado!\nID: ${user.email}`, 
         [{ text: 'OK' }]
       );
 
@@ -156,17 +173,23 @@ function App() {
     return <View style={styles.container}><Text style={styles.errorText}>Error de Permisos: {errorMsg}</Text></View>;
   }
 
+
   return (
-    // El JSX del return no necesita cambios, solo la lógica de conexión
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>Control de Fichaje (Conexión a RTDB)</Text>
+        <View style={styles.logoutContainer}>
+            <Text style={styles.loggedInAs}>Fichando como: {user.email}</Text>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+                <Text style={styles.logoutText}>Salir</Text>
+            </TouchableOpacity>
+        </View>
+
+      <Text style={styles.header}>Control de Fichaje</Text>
       
-      <Text style={styles.label}>ID de Empleado:</Text>
+      <Text style={styles.label}>Email/ID de Empleado:</Text>
       <TextInput
-        style={styles.input}
-        onChangeText={setEmpleadoId}
+        style={[styles.input, { backgroundColor: '#e0e0e0' }]}
         value={empleadoId}
-        placeholder="Ingrese su ID de empleado"
+        editable={false}
       />
       
       <Text style={styles.label}>Actividad/Obra:</Text>
@@ -178,7 +201,7 @@ function App() {
       />
 
       {loading && (
-        <ActivityIndicator size="large" color="#007AFF" style={{ marginVertical: 20 }} />
+        <ActivityIndicator size="large" color="#1e3a8a" style={{ marginVertical: 20 }} />
       )}
 
       <View style={styles.buttonContainer}>
@@ -212,72 +235,243 @@ function App() {
       </View>
     </ScrollView>
   );
+};
+
+
+// ==========================================================
+// PANTALLA DE LOGIN
+// ==========================================================
+
+const LoginScreen = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [loginError, setLoginError] = useState(null);
+
+    const handleLogin = async () => {
+        setLoading(true);
+        setLoginError(null);
+        try {
+            await signInWithEmailAndPassword(auth, email, password);
+        } catch (error) {
+            console.error("Error de Login:", error.code);
+            let message = "Error desconocido de autenticación.";
+            if (error.code === 'auth/invalid-email') {
+                message = "Formato de email incorrecto.";
+            } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                message = "Usuario o contraseña incorrectos.";
+            } else if (error.code === 'auth/too-many-requests') {
+                 message = "Demasiados intentos fallidos. Intente más tarde.";
+            }
+            setLoginError(message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <KeyboardAvoidingView 
+            behavior={Platform.OS === "ios" ? "padding" : "height"} 
+            style={styles.loginContainer}
+        >
+            <View style={styles.loginCard}>
+                <Text style={styles.header}>ACCESO DE EMPLEADOS</Text>
+                
+                <Text style={styles.label}>Email/ID de Empleado</Text>
+                <TextInput
+                    style={styles.input}
+                    placeholder="ej: empleado@consorcio.com"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                />
+
+                <Text style={styles.label}>Contraseña</Text>
+                <TextInput
+                    style={styles.input}
+                    placeholder="Contraseña"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                />
+
+                {loginError && (
+                    <Text style={styles.loginErrorText}>{loginError}</Text>
+                )}
+
+                <Button
+                    title={loading ? "Verificando..." : "INICIAR SESIÓN"}
+                    onPress={handleLogin}
+                    color="#1e3a8a"
+                    disabled={loading || !email || !password}
+                />
+            </View>
+        </KeyboardAvoidingView>
+    );
+};
+
+// ==========================================================
+// COMPONENTE PRINCIPAL (Maneja el Estado de Autenticación)
+// ==========================================================
+
+export default function App() {
+    const [user, setUser] = useState(null); 
+    const [authReady, setAuthReady] = useState(false); 
+    
+    // Auth Listener
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+            setAuthReady(true);
+        });
+        return unsubscribe; // Cleanup subscription
+    }, []);
+
+    const handleLogout = () => {
+        signOut(auth).catch(error => {
+            Alert.alert("Error al salir", "No se pudo cerrar la sesión.");
+            console.error(error);
+        });
+    };
+
+    if (!authReady) {
+        return (
+            <View style={[styles.container, { justifyContent: 'center' }]}>
+                <ActivityIndicator size="large" color="#1e3a8a" />
+                <Text style={styles.loadingText}>Cargando autenticación...</Text>
+            </View>
+        );
+    }
+
+    if (!user) {
+        return <LoginScreen />;
+    }
+
+    // Si el usuario está autenticado, muestra la pantalla de fichaje
+    return <FichajeScreen user={user} handleLogout={handleLogout} />;
 }
 
-// Estilos (sin cambios)
-const styles = StyleSheet.create({
-    container: {
-        flexGrow: 1,
-        padding: 25,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-      },
-      header: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 40,
-        textAlign: 'center',
-        color: '#1e3a8a',
-      },
-      label: {
-        fontSize: 16,
-        fontWeight: '500',
-        marginTop: 10,
-        marginBottom: 5,
-        color: '#374151',
-      },
-      input: {
-        height: 48,
-        borderColor: '#ddd',
-        borderWidth: 1,
-        marginBottom: 15,
-        paddingHorizontal: 15,
-        borderRadius: 8,
-        backgroundColor: '#f9f9f9',
-      },
-      buttonContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: 30,
-        marginBottom: 40,
-      },
-      statusBox: {
-        padding: 15,
-        backgroundColor: '#f3f4f6',
-        borderRadius: 8,
-        borderLeftWidth: 5,
-        borderLeftColor: '#3b82f6',
-      },
-      statusTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        marginBottom: 5,
-        color: '#1e3a8a',
-      },
-      statusText: {
-        fontSize: 13,
-        color: '#4b5563',
-      },
-      statusCoords: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#059669',
-      },
-      errorText: {
-        fontSize: 18,
-        color: 'red',
-        textAlign: 'center',
-      },
-});
 
-export default App;
+// ==========================================================
+// ESTILOS COMPARTIDOS
+// ==========================================================
+
+const styles = StyleSheet.create({
+  // Estilos compartidos por Login y Fichaje
+  container: {
+    flexGrow: 1,
+    padding: 25,
+    backgroundColor: '#fff',
+  },
+  header: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 40,
+    textAlign: 'center',
+    color: '#1e3a8a',
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 10,
+    marginBottom: 5,
+    color: '#374151',
+  },
+  input: {
+    height: 48,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    marginBottom: 15,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
+  },
+  
+  // Estilos específicos de Fichaje
+  logoutContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  loggedInAs: {
+      fontSize: 14,
+      color: '#555',
+      fontWeight: '600',
+  },
+  logoutButton: {
+      backgroundColor: '#f87171',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 5,
+  },
+  logoutText: {
+      color: 'white',
+      fontWeight: 'bold',
+      fontSize: 12,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 30,
+    marginBottom: 40,
+  },
+  statusBox: {
+    padding: 15,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    borderLeftWidth: 5,
+    borderLeftColor: '#3b82f6',
+  },
+  statusTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#1e3a8a',
+  },
+  statusText: {
+    fontSize: 13,
+    color: '#4b5563',
+  },
+  statusCoords: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  errorText: {
+    fontSize: 18,
+    color: 'red',
+    textAlign: 'center',
+  },
+  loadingText: {
+    textAlign: 'center',
+    marginTop: 20,
+    fontSize: 16,
+    color: '#1e3a8a',
+  },
+
+  // Estilos específicos de Login
+  loginContainer: {
+    flex: 1,
+    backgroundColor: '#f4f4f4',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loginCard: {
+      backgroundColor: 'white',
+      padding: 30,
+      borderRadius: 12,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 5,
+      elevation: 6,
+  },
+  loginErrorText: {
+      color: '#dc2626',
+      textAlign: 'center',
+      marginBottom: 10,
+      fontWeight: '600',
+  }
+});
