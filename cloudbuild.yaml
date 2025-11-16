@@ -62,11 +62,3 @@ images:
   - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
 
 timeout: '1800s'
-
-# Define how secrets from Secret Manager are made available during the build
-# This block is for Cloud Build's internal use if a step needed to access the secret directly.
-# For Cloud Run, the --set-secrets flag handles the runtime injection.
-availableSecrets:
-  secretManager:
-  - versionName: projects/$PROJECT_ID/secrets/${_DB_PASS_SECRET_NAME}/versions/latest
-    env: DB_PASS_FROM_SECRET # This is an arbitrary environment variable name for Cloud Build's use
