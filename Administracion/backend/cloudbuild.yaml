@@ -1,0 +1,53 @@
+steps:
+  # Step 1: Construir la imagen de Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/fichaje-backend:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/fichaje-backend:latest'
+      - './Administracion/backend'
+
+  # Step 2: Hacer push de la imagen a Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/fichaje-backend:$SHORT_SHA'
+
+  # Step 3: Desplegar a Cloud Run
+  - name: 'gcr.io/cloud-builders/run'
+    args:
+      - 'deploy'
+      - 'fichaje-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/fichaje-backend:$SHORT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '60'
+      - '--set-env-vars'
+      - 'INSTANCE_CONNECTION_NAME=$_INSTANCE_CONNECTION_NAME,DB_USER=$_DB_USER,DB_PASS=$_DB_PASS,DB_NAME=$_DB_NAME,USE_PRIVATE_IP=$_USE_PRIVATE_IP'
+      - '--allow-unauthenticated'
+
+# Configuración de imágenes
+images:
+  - 'gcr.io/$PROJECT_ID/fichaje-backend:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/fichaje-backend:latest'
+
+# Tiempo de timeout para la construcción
+timeout: '1800s'
+
+# Variables de sustitución (configurar en Cloud Build)
+substitutions:
+  _INSTANCE_CONNECTION_NAME: 'your-project:us-central1:postgresql-instance'
+  _DB_USER: 'postgres'
+  _DB_PASS: 'your-password'
+  _DB_NAME: 'fichajes_db'
+  _USE_PRIVATE_IP: 'false'
