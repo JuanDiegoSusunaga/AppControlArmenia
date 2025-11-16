@@ -8,7 +8,7 @@ options:
 
 substitutions:
   # Non-sensitive defaults (override in trigger or via --substitutions)
-  _INSTANCE_CONNECTION_NAME: 'juan-diego-susunaga:us-central1:controldeobranexus'
+  _INSTANCE_CONNECTION_NAME: '$PROJECT_ID:us-central1:controldeobranexus'
   _DB_USER: 'app_user'
   _DB_NAME: 'controldeobranexus'
   _USE_PRIVATE_IP: 'true'

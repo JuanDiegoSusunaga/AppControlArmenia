@@ -1,21 +1,18 @@
 options:
   logging: CLOUD_LOGGING_ONLY
 
-# NOTE: Do NOT store secrets (passwords) in this file. Prefer using Cloud Build
-# substitutions at trigger time or Google Secret Manager. This pipeline will
-# attempt to read `_DB_PASS` from a substitution; if missing it will try to
-# read the secret `APP_DB_PASSWORD` from Secret Manager.
-
 substitutions:
-  # Provided defaults (non-sensitive). Replace these in the Cloud Build trigger
-  # or pass them at build time via `--substitutions`.
-  _INSTANCE_CONNECTION_NAME: 'juan-diego-susunaga:us-central1:controldeobranexus'
+  # El nombre de conexión ahora usa $PROJECT_ID para usar siempre
+  # el ID del proyecto correcto donde se ejecuta la compilación.
+  _INSTANCE_CONNECTION_NAME: '$PROJECT_ID:us-central1:controldeobranexus'
   _DB_USER: 'app_user'
   _DB_NAME: 'controldeobranexus'
   _USE_PRIVATE_IP: 'true'
+  # Este es el nombre del secreto que tienes en Google Secret Manager
+  _DB_PASS_SECRET_NAME: 'APP_DB_PASSWORD'
 
 steps:
-  # 1) Build the backend image using the backend Dockerfile and context
+  # 1) Construir la imagen de Docker
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -27,184 +24,35 @@ steps:
       - 'Administracion/backend/Dockerfile'
       - 'Administracion/backend'
 
-  # 2) Push the built image (short sha)
+  # 2) Publicar la imagen con la etiqueta de SHA corto
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
+    args: ['push', 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA']
 
-  # 3) Push the :latest tag as well
+  # 3) Publicar la imagen con la etiqueta 'latest'
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
+    args: ['push', 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest']
 
-  # 4) Deploy to Cloud Run (managed). This step will look for `_DB_PASS`.
+  # 4) Desplegar en Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
     args:
-      - '-c'
-      - |
-        set -euo pipefail
-        # If _DB_PASS substitution is empty, try Secret Manager
-        if [ -z "${_DB_PASS:-}" ]; then
-          echo "_DB_PASS substitution not provided. Trying Secret Manager secret 'APP_DB_PASSWORD'..."
-          if gcloud secrets versions access latest --secret="APP_DB_PASSWORD" >/dev/null 2>&1; then
-            DB_PASS="$(gcloud secrets versions access latest --secret="APP_DB_PASSWORD")"
-          else
-            echo "ERROR: No _DB_PASS substitution and Secret Manager secret 'APP_DB_PASSWORD' not found."
-            exit 1
-          fi
-        else
-          DB_PASS="${_DB_PASS}"
-        fi
-
-        gcloud run deploy appcontrolarmenia \
-          --image=gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA \
-          --region=us-central1 \
-          --platform=managed \
-          --memory=512Mi \
-          --cpu=1 \
-          --timeout=60s \
-          --allow-unauthenticated \
-          --add-cloudsql-instances="${_INSTANCE_CONNECTION_NAME}" \
-          --set-env-vars="INSTANCE_CONNECTION_NAME=${_INSTANCE_CONNECTION_NAME},DB_USER=${_DB_USER},DB_PASS=${DB_PASS},DB_NAME=${_DB_NAME},USE_PRIVATE_IP=${_USE_PRIVATE_IP}"
+      - 'run'
+      - 'deploy'
+      - 'appcontrolarmenia'
+      - '--image=gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
+      # Asegúrate de que esta es la región correcta de tu Cloud SQL
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--timeout=60s'
+      - '--allow-unauthenticated'
+      - '--add-cloudsql-instances=${_INSTANCE_CONNECTION_NAME}'
+      # La forma correcta y segura de pasar secretos a Cloud Run
+      - '--set-secrets=DB_PASS=${_DB_PASS_SECRET_NAME}:latest'
+      - '--set-env-vars=INSTANCE_CONNECTION_NAME=${_INSTANCE_CONNECTION_NAME},DB_USER=${_DB_USER},DB_NAME=${_DB_NAME},USE_PRIVATE_IP=${_USE_PRIVATE_IP}'
 
 images:
   - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
   - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
 
 timeout: '1800s'
-options:
-  logging: CLOUD_LOGGING_ONLY
-
-# NOTE: Do NOT store secrets (passwords) in this file. Prefer using Cloud Build
-# substitutions at trigger time or Google Secret Manager. This pipeline will
-# attempt to read `_DB_PASS` from a substitution; if missing it will try to
-# read the secret `APP_DB_PASSWORD` from Secret Manager.
-
-substitutions:
-  # Provided defaults (non-sensitive). Replace these in the Cloud Build trigger
-  # or pass them at build time via `--substitutions`.
-  _INSTANCE_CONNECTION_NAME: 'juan-diego-susunaga:us-central1:controldeobranexus'
-  _DB_USER: 'app_user'
-  _DB_NAME: 'controldeobranexus'
-  _USE_PRIVATE_IP: 'true'
-
-steps:
-  # 1) Build the backend image using the backend Dockerfile and context
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
-      - '-f'
-      - 'Administracion/backend/Dockerfile'
-      - 'Administracion/backend'
-
-  # 2) Push the built image (short sha)
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
-
-  # 3) Push the :latest tag as well
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
-
-  # 4) Deploy to Cloud Run (managed). This step will look for `_DB_PASS`.
-  - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        set -euo pipefail
-        # If _DB_PASS substitution is empty, try Secret Manager
-        if [ -z "${_DB_PASS:-}" ]; then
-          echo "_DB_PASS substitution not provided. Trying Secret Manager secret 'APP_DB_PASSWORD'..."
-          if gcloud secrets versions access latest --secret="APP_DB_PASSWORD" >/dev/null 2>&1; then
-            DB_PASS="$(gcloud secrets versions access latest --secret="APP_DB_PASSWORD")"
-          else
-            echo "ERROR: No _DB_PASS substitution and Secret Manager secret 'APP_DB_PASSWORD' not found."
-            exit 1
-          fi
-        options:
-          logging: CLOUD_LOGGING_ONLY
-
-        # NOTE: Do NOT store secrets (passwords) in this file. Prefer using Cloud Build
-        # substitutions at trigger time or Google Secret Manager. This pipeline will
-        # attempt to read `_DB_PASS` from a substitution; if missing it will try to
-        # read the secret `APP_DB_PASSWORD` from Secret Manager.
-
-        substitutions:
-          # Provided defaults (non-sensitive). Replace these in the Cloud Build trigger
-          # or pass them at build time via `--substitutions`.
-          _INSTANCE_CONNECTION_NAME: 'juan-diego-susunaga:us-central1:controldeobranexus'
-          _DB_USER: 'app_user'
-          _DB_NAME: 'controldeobranexus'
-          _USE_PRIVATE_IP: 'true'
-
-        steps:
-          # 1) Build the backend image using the backend Dockerfile and context
-          - name: 'gcr.io/cloud-builders/docker'
-            args:
-              - 'build'
-              - '-t'
-              - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
-              - '-t'
-              - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
-              - '-f'
-              - 'Administracion/backend/Dockerfile'
-              - 'Administracion/backend'
-
-          # 2) Push the built image (short sha)
-          - name: 'gcr.io/cloud-builders/docker'
-            args:
-              - 'push'
-              - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
-
-          # 3) Push the :latest tag as well
-          - name: 'gcr.io/cloud-builders/docker'
-            args:
-              - 'push'
-              - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
-
-          # 4) Deploy to Cloud Run (managed). This step will look for `_DB_PASS`.
-          - name: 'gcr.io/cloud-builders/gcloud'
-            entrypoint: 'bash'
-            args:
-              - '-c'
-              - |
-                set -euo pipefail
-                # If _DB_PASS substitution is empty, try Secret Manager
-                if [ -z "${_DB_PASS:-}" ]; then
-                  echo "_DB_PASS substitution not provided. Trying Secret Manager secret 'APP_DB_PASSWORD'..."
-                  if gcloud secrets versions access latest --secret="APP_DB_PASSWORD" >/dev/null 2>&1; then
-                    DB_PASS="$(gcloud secrets versions access latest --secret="APP_DB_PASSWORD")"
-                  else
-                    echo "ERROR: No _DB_PASS substitution and Secret Manager secret 'APP_DB_PASSWORD' not found."
-                    exit 1
-                  fi
-                else
-                  DB_PASS="${_DB_PASS}"
-                fi
-
-                gcloud run deploy appcontrolarmenia \
-                  --image=gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA \
-                  --region=europe-west1 \
-                  --platform=managed \
-                  --memory=512Mi \
-                  --cpu=1 \
-                  --timeout=60s \
-                  --allow-unauthenticated \
-                  --set-env-vars="INSTANCE_CONNECTION_NAME=${_INSTANCE_CONNECTION_NAME},DB_USER=${_DB_USER},DB_PASS=${DB_PASS},DB_NAME=${_DB_NAME},USE_PRIVATE_IP=${_USE_PRIVATE_IP}"
-
-        images:
-          - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:$SHORT_SHA'
-          - 'gcr.io/$PROJECT_ID/appcontrolarmenia-backend:latest'
-
-        timeout: '1800s'
