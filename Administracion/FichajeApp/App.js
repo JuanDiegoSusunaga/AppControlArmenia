@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc } from 'firebase/firestore';
+// 🚨 CAMBIO 1: Importar desde "firebase/database" en lugar de "firebase/firestore"
+import { getDatabase, ref, push } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDM4HvPGHme9UTKiAxGgNuZJX_a5BUBtu4",
@@ -19,11 +20,14 @@ const firebaseConfig = {
   projectId: "controldeobranexus",
   storageBucket: "controldeobranexus.firebasestorage.app",
   messagingSenderId: "382485340614",
-  appId: "1:382485340614:web:81f3e28baca08c57b412c7"
+  appId: "1:382485340614:web:81f3e28baca08c57b412c7",
+  // 🚨 CAMBIO 2: Añadir la URL de tu Realtime Database
+  databaseURL: "https://controldeobranexus-default-rtdb.firebaseio.com"
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// 🚨 CAMBIO 3: Inicializar Realtime Database, no Firestore
+const db = getDatabase(app);
 
 // --- Configuración de Geo-Cerca ---
 const ZONA_AUTORIZADA = {
@@ -32,18 +36,16 @@ const ZONA_AUTORIZADA = {
   radio: 200, 
 };
 
-// Función Haversine para calcular la distancia en metros
+// Función Haversine (sin cambios)
 const distancia = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3; 
-  const toRad = v => (v * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; 
+    const R = 6371e3; 
+    const toRad = v => (v * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; 
 };
-
 
 function App() {
   const [empleadoId, setEmpleadoId] = useState('EMP-987');
@@ -54,7 +56,7 @@ function App() {
   const [mensajeEstado, setMensajeEstado] = useState('Esperando ubicación...');
   const [ultimaCoordenada, setUltimaCoordenada] = useState(null);
 
-  // 1. Obtener Permisos y Ubicación
+  // useEffect para la ubicación (sin cambios)
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -125,13 +127,14 @@ function App() {
       actividad: actividad,
       latitud: location.coords.latitude,
       longitud: location.coords.longitude,
-      timestamp_cliente: new Date().toISOString(),
-      fuera_de_zona: fueraDeZona, // Nuevo campo para auditoría
+      timestamp_servidor: new Date().toISOString(), // Realtime Database puede usar un timestamp del servidor
+      fuera_de_zona: fueraDeZona,
     };
 
     try {
-      // 🚨 GUARDAR DATOS DIRECTAMENTE EN FIRESTORE 🚨
-      await addDoc(collection(db, "fichajes"), payload);
+      // 🚨 CAMBIO 4: GUARDAR DATOS EN REALTIME DATABASE 🚨
+      const fichajesRef = ref(db, 'fichajes');
+      await push(fichajesRef, payload);
 
       Alert.alert('Fichaje Exitoso', 
         `¡${tipo_fichaje} registrado!\nID: ${empleadoId}`, 
@@ -139,9 +142,9 @@ function App() {
       );
 
     } catch (error) {
-      console.error("Error al escribir en Firestore: ", error);
+      console.error("Error al escribir en Realtime Database: ", error);
       Alert.alert('Error de Conexión a Firebase', 
-        'No se pudo guardar el registro. Verifique su conexión y las reglas de seguridad de Firestore.', 
+        'No se pudo guardar el registro. Verifique su conexión y las reglas de seguridad de Realtime Database.', 
         [{ text: 'OK' }]
       );
     } finally {
@@ -149,15 +152,14 @@ function App() {
     }
   };
 
-
   if (errorMsg) {
     return <View style={styles.container}><Text style={styles.errorText}>Error de Permisos: {errorMsg}</Text></View>;
   }
 
-
   return (
+    // El JSX del return no necesita cambios, solo la lógica de conexión
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>Control de Fichaje (Conexión a Firestore)</Text>
+      <Text style={styles.header}>Control de Fichaje (Conexión a RTDB)</Text>
       
       <Text style={styles.label}>ID de Empleado:</Text>
       <TextInput
@@ -212,69 +214,70 @@ function App() {
   );
 }
 
+// Estilos (sin cambios)
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 25,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-  },
-  header: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 40,
-    textAlign: 'center',
-    color: '#1e3a8a',
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 10,
-    marginBottom: 5,
-    color: '#374151',
-  },
-  input: {
-    height: 48,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    marginBottom: 15,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    backgroundColor: '#f9f9f9',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 30,
-    marginBottom: 40,
-  },
-  statusBox: {
-    padding: 15,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    borderLeftWidth: 5,
-    borderLeftColor: '#3b82f6',
-  },
-  statusTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    color: '#1e3a8a',
-  },
-  statusText: {
-    fontSize: 13,
-    color: '#4b5563',
-  },
-  statusCoords: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#059669',
-  },
-  errorText: {
-    fontSize: 18,
-    color: 'red',
-    textAlign: 'center',
-  },
+    container: {
+        flexGrow: 1,
+        padding: 25,
+        backgroundColor: '#fff',
+        justifyContent: 'center',
+      },
+      header: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        marginBottom: 40,
+        textAlign: 'center',
+        color: '#1e3a8a',
+      },
+      label: {
+        fontSize: 16,
+        fontWeight: '500',
+        marginTop: 10,
+        marginBottom: 5,
+        color: '#374151',
+      },
+      input: {
+        height: 48,
+        borderColor: '#ddd',
+        borderWidth: 1,
+        marginBottom: 15,
+        paddingHorizontal: 15,
+        borderRadius: 8,
+        backgroundColor: '#f9f9f9',
+      },
+      buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 30,
+        marginBottom: 40,
+      },
+      statusBox: {
+        padding: 15,
+        backgroundColor: '#f3f4f6',
+        borderRadius: 8,
+        borderLeftWidth: 5,
+        borderLeftColor: '#3b82f6',
+      },
+      statusTitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        marginBottom: 5,
+        color: '#1e3a8a',
+      },
+      statusText: {
+        fontSize: 13,
+        color: '#4b5563',
+      },
+      statusCoords: {
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: '#059669',
+      },
+      errorText: {
+        fontSize: 18,
+        color: 'red',
+        textAlign: 'center',
+      },
 });
 
 export default App;
