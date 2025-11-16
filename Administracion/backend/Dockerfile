@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Instala dependencias del sistema necesarias para psycopg2 y pg8000
+# Instala dependencias del sistema necesarias para Cloud SQL Connector
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -30,8 +30,7 @@ COPY . .
 # Expone puerto 8080 (requerido por Cloud Run)
 EXPOSE 8080
 
-# Comando de inicio con Gunicorn (recomendado para Cloud Run)
-# Usa workers limitados (1-2) para Cloud Run según documentación oficial
+# Comando de inicio con Gunicorn
 CMD exec gunicorn --bind 0.0.0.0:8080 \
     --workers 1 \
     --worker-class sync \
